@@ -14,13 +14,13 @@ const YELLOW: Color = Color {
     r: 1.0,
     g: 1.0,
     b: 0.0,
-    a: 0.1,
+    a: 1.0,
 };
 
-const ORANGE: Color = Color {
-    r: 1.0,
+const GRAY: Color = Color {
+    r: 0.7,
     g: 0.7,
-    b: 0.0,
+    b: 0.7,
     a: 0.1,
 };
 
@@ -106,9 +106,66 @@ struct VennTarget {
     size: VennSize,
 }
 
+struct VennAnswer {
+    width: f32,
+    height: f32,
+    center: Point,
+    hover: bool,
+    target: VennTarget,
+}
+
+impl VennAnswer {
+    fn draw(&self, mesh: &mut Mesh) {
+        if self.hover {
+            let mut color = YELLOW;
+            color.a = 0.1;
+            mesh.fill(
+                Shape::Rectangle(Rectangle {
+                    x: self.center.x - self.width / 2.0,
+                    y: self.center.y - self.height / 2.0,
+                    width: self.width,
+                    height: self.height,
+                }),
+                color,
+            );
+        }
+        mesh.stroke(
+            Shape::Rectangle(Rectangle {
+                x: self.center.x - self.width / 2.0,
+                y: self.center.y - self.height / 2.0,
+                width: self.width,
+                height: self.height,
+            }),
+            Color::BLACK,
+            2,
+        );
+    }
+
+    fn contains(&self, point: &Point) -> bool {
+        if point.x > self.center.x - self.width / 2.0
+            && point.x < self.center.x + self.width / 2.0
+            && point.y > self.center.y - self.height / 2.0
+            && point.y < self.center.y + self.height / 2.0
+        {
+            return true;
+        }
+        false
+    }
+
+    fn matches(&self, target: &VennTarget) -> bool {
+        if self.target.shape == target.shape
+            // || self.target.size == target.size
+            && self.target.color == target.color
+        {
+            return true;
+        }
+        false
+    }
+}
+
 #[derive(PartialEq, Copy, Clone)]
 enum VennColor {
-    Green,
+    Yellow,
     Blue,
     Purple,
 }
@@ -116,7 +173,7 @@ enum VennColor {
 impl VennColor {
     fn to_color(&self) -> Color {
         match self {
-            VennColor::Green => GREEN,
+            VennColor::Yellow => YELLOW,
             VennColor::Blue => BLUE,
             VennColor::Purple => PURPLE,
         }
@@ -125,12 +182,12 @@ impl VennColor {
 
 impl VennColor {
     fn all() -> Vec<VennColor> {
-        vec![VennColor::Green, VennColor::Blue, VennColor::Purple]
+        vec![VennColor::Yellow, VennColor::Blue, VennColor::Purple]
     }
 
     fn random(rng: &mut rand::rngs::ThreadRng) -> VennColor {
         match rng.gen_range(0, 2) {
-            0 => VennColor::Green,
+            0 => VennColor::Yellow,
             1 => VennColor::Blue,
             2 => VennColor::Purple,
             _ => panic!("Unexpected value"),
@@ -215,7 +272,7 @@ impl VennGuess {
 
     fn draw(&self, mesh: &mut Mesh) {
         let mut color = match self.matches {
-            None => ORANGE,
+            None => GRAY,
             Some(true) => GREEN,
             Some(false) => RED,
         };
@@ -268,7 +325,7 @@ struct VennCircle {
     radius: f32,
     color: Color,
     selected: bool,
-    target: VennTarget,
+    answer: VennAnswer,
 }
 
 impl Default for VennCircle {
@@ -278,10 +335,16 @@ impl Default for VennCircle {
             radius: 1.0,
             color: Color::BLACK,
             selected: false,
-            target: VennTarget {
-                shape: VennShape::Circle,
-                size: VennSize::Large,
-                color: VennColor::Blue,
+            answer: VennAnswer {
+                center: Point::new(0.0, 0.0),
+                width: 40.0,
+                height: 30.0,
+                hover: false,
+                target: VennTarget {
+                    shape: VennShape::Circle,
+                    size: VennSize::Large,
+                    color: VennColor::Blue,
+                },
             },
         }
     }
@@ -289,6 +352,7 @@ impl Default for VennCircle {
 
 impl VennCircle {
     fn draw(&self, mesh: &mut Mesh) {
+        self.answer.draw(mesh);
         let mut color = self.color.clone();
         color.a = 0.1;
         if self.selected {
@@ -318,10 +382,17 @@ impl VennCircle {
         false
     }
 
+    fn interact(&mut self, input: &VennInput) {
+        self.selected = false;
+        if self.contains(&input.cursor_position) {
+            self.selected = true;
+        }
+    }
+
     fn matches(&self, target: &VennTarget) -> bool {
-        if self.target.shape == target.shape
+        if self.answer.target.shape == target.shape
             // || self.target.size == target.size
-            || self.target.color == target.color
+            || self.answer.target.color == target.color
         {
             return true;
         }
@@ -330,21 +401,10 @@ impl VennCircle {
 }
 
 struct Venn {
-    x_margin: f32,
-    y_margin: f32,
     left: VennCircle,
     right: VennCircle,
     shapes: Vec<VennGuess>,
     drag_index: Option<usize>,
-}
-
-fn random_shape(rng: &mut rand::rngs::ThreadRng) -> VennShape {
-    match rng.gen_range(0, 2) {
-        0 => VennShape::Circle,
-        1 => VennShape::Square,
-        2 => VennShape::Triangle,
-        _ => panic!("Unexpected value"),
-    }
 }
 
 impl Game for Venn {
@@ -370,31 +430,48 @@ impl Game for Venn {
                     // }
                 }
             }
+            let left_center =
+                Point::new(x_margin + remaining_x / 3.0, y_margin + remaining_y / 2.0);
+            let mut left_answer_center = left_center.clone();
+            left_answer_center.y = left_answer_center.y - 200.0 - 40.0 - 15.0;
+            let right_center = Point::new(
+                WIDTH - x_margin - remaining_x / 3.0,
+                HEIGHT - y_margin - remaining_y / 2.0,
+            );
+            let mut right_answer_center = right_center.clone();
+            right_answer_center.y = right_answer_center.y - 200.0 - 40.0 - 15.0;
             Venn {
-                x_margin,
-                y_margin,
                 left: VennCircle {
-                    center: Point::new(x_margin + remaining_x / 3.0, y_margin + remaining_y / 2.0),
+                    center: left_center,
                     radius: 200.0,
                     color: BLUE,
-                    target: VennTarget {
-                        shape: VennShape::random(&mut rng),
-                        size: VennSize::random(&mut rng),
-                        color: VennColor::random(&mut rng),
+                    answer: VennAnswer {
+                        center: left_answer_center,
+                        width: 100.0,
+                        height: 80.0,
+                        hover: false,
+                        target: VennTarget {
+                            shape: VennShape::random(&mut rng),
+                            size: VennSize::random(&mut rng),
+                            color: VennColor::random(&mut rng),
+                        },
                     },
                     ..VennCircle::default()
                 },
                 right: VennCircle {
-                    center: Point::new(
-                        WIDTH - x_margin - remaining_x / 3.0,
-                        HEIGHT - y_margin - remaining_y / 2.0,
-                    ),
+                    center: right_center,
                     radius: 200.0,
                     color: YELLOW,
-                    target: VennTarget {
-                        shape: random_shape(&mut rng),
-                        size: VennSize::Large,
-                        color: VennColor::Blue,
+                    answer: VennAnswer {
+                        center: right_answer_center,
+                        width: 100.0,
+                        height: 80.0,
+                        hover: false,
+                        target: VennTarget {
+                            shape: VennShape::random(&mut rng),
+                            size: VennSize::random(&mut rng),
+                            color: VennColor::random(&mut rng),
+                        },
                     },
                     ..VennCircle::default()
                 },
@@ -416,14 +493,8 @@ impl Game for Venn {
     }
 
     fn interact(&mut self, input: &mut Self::Input, _window: &mut Window) {
-        self.left.selected = false;
-        if self.left.contains(&input.cursor_position) {
-            self.left.selected = true;
-        }
-        self.right.selected = false;
-        if self.right.contains(&input.cursor_position) {
-            self.right.selected = true;
-        }
+        self.left.interact(input);
+        self.right.interact(input);
         if input.is_mouse_pressed {
             match self.drag_index {
                 None => {
@@ -437,42 +508,48 @@ impl Game for Venn {
                     }
                 }
                 Some(index) => {
-                    self.shapes[index].center = input.cursor_position;
+                    self.shapes[index].drag_to(&input.cursor_position);
                 }
             }
+            if self.drag_index.is_some() {
+                self.left.answer.hover = self.left.answer.contains(&input.cursor_position);
+                self.right.answer.hover = self.right.answer.contains(&input.cursor_position);
+            }
         } else {
+            self.left.answer.hover = false;
+            self.right.answer.hover = false;
             match self.drag_index {
                 Some(index) => {
                     let mut shape = &mut self.shapes[index];
                     match (
                         self.left.contains(&shape.center),
                         self.right.contains(&shape.center),
+                        self.left.answer.contains(&shape.center),
+                        self.right.answer.contains(&shape.center),
                     ) {
-                        (true, true) => {
+                        (true, true, _, _) => {
                             // Does left and right need to match the same property of shape?
                             // Or is it okay if it contains at least one property of each, independently?
-                            if self.left.matches(&shape.target) && self.right.matches(&shape.target)
-                            {
-                                shape.matches = Some(true);
-                            } else {
-                                shape.matches = Some(false);
-                            }
+                            shape.matches = Some(
+                                self.left.matches(&shape.target)
+                                    && self.right.matches(&shape.target),
+                            );
                         }
-                        (true, false) => {
-                            if self.left.matches(&shape.target) {
-                                shape.matches = Some(true);
-                            } else {
-                                shape.matches = Some(false);
-                            }
+                        (true, false, _, _) => {
+                            shape.matches = Some(self.left.matches(&shape.target));
                         }
-                        (false, true) => {
-                            if self.right.matches(&shape.target) {
-                                shape.matches = Some(true);
-                            } else {
-                                shape.matches = Some(false);
-                            }
+                        (false, true, _, _) => {
+                            shape.matches = Some(self.right.matches(&shape.target));
                         }
-                        (false, false) => {
+                        (false, false, true, false) => {
+                            shape.matches = Some(self.left.answer.matches(&shape.target));
+                            shape.center = self.left.answer.center;
+                        }
+                        (false, false, false, true) => {
+                            shape.matches = Some(self.right.answer.matches(&shape.target));
+                            shape.center = self.right.answer.center;
+                        }
+                        (false, false, _, _) => {
                             shape.matches = None;
                         }
                     }
