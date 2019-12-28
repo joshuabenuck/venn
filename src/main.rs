@@ -1,12 +1,11 @@
 use coffee::{
     graphics::{Color, Frame, Mesh, Point, Rectangle, Shape, Window, WindowSettings},
-    input::{keyboard, keyboard::KeyCode, mouse, ButtonState, Event, Input, KeyboardAndMouse},
+    input::{mouse, ButtonState, Event, Input},
     load::Task,
     Game, Result, Timer,
 };
 use nalgebra;
 use rand::{self, Rng};
-use std::collections::HashSet;
 
 const WIDTH: f32 = 800.0;
 const HEIGHT: f32 = 600.0;
@@ -36,14 +35,14 @@ const BLUE: Color = Color {
     r: 0.0,
     g: 0.0,
     b: 1.0,
-    a: 0.1,
+    a: 1.0,
 };
 
 const GREEN: Color = Color {
     r: 0.0,
     g: 1.0,
     b: 0.0,
-    a: 0.1,
+    a: 1.0,
 };
 
 const PURPLE: Color = Color {
@@ -58,44 +57,6 @@ struct VennInput {
     cursor_position: Point,
     is_cursor_taken: bool,
     is_mouse_pressed: bool,
-    left_clicks: Vec<Point>,
-    pressed_keys: HashSet<keyboard::KeyCode>,
-    released_keys: HashSet<keyboard::KeyCode>,
-}
-
-impl VennInput {
-    /// Returns the current cursor position.
-    pub fn cursor_position(&self) -> Point {
-        self.cursor_position
-    }
-
-    /// Returns true if the cursor is currently not available.
-    ///
-    /// This mostly happens when the cursor is currently over a
-    /// [`UserInterface`].
-    ///
-    /// [`UserInterface`]: ../ui/trait.UserInterface.html
-    pub fn is_cursor_taken(&self) -> bool {
-        self.is_cursor_taken
-    }
-
-    /// Returns the positions of the mouse clicks during the last interaction.
-    ///
-    /// Clicks performed while the mouse cursor is not available are
-    /// automatically ignored.
-    pub fn left_clicks(&self) -> &[Point] {
-        &self.left_clicks
-    }
-
-    /// Returns true if the given key is currently pressed.
-    pub fn is_key_pressed(&self, key_code: keyboard::KeyCode) -> bool {
-        self.pressed_keys.contains(&key_code)
-    }
-
-    /// Returns true if the given key was released during the last interaction.
-    pub fn was_key_released(&self, key_code: keyboard::KeyCode) -> bool {
-        self.released_keys.contains(&key_code)
-    }
 }
 
 impl Input for VennInput {
@@ -104,9 +65,6 @@ impl Input for VennInput {
             cursor_position: Point::new(0.0, 0.0),
             is_cursor_taken: false,
             is_mouse_pressed: false,
-            left_clicks: Vec::new(),
-            pressed_keys: HashSet::new(),
-            released_keys: HashSet::new(),
         }
     }
 
@@ -130,53 +88,16 @@ impl Input for VennInput {
                         self.is_mouse_pressed = !self.is_cursor_taken;
                     }
                     ButtonState::Released => {
-                        if !self.is_cursor_taken && self.is_mouse_pressed {
-                            self.left_clicks.push(self.cursor_position);
-                        }
-
                         self.is_mouse_pressed = false;
                     }
                 },
-                mouse::Event::Input { .. } => {
-                    // TODO: Track other buttons!
-                }
-                mouse::Event::CursorEntered => {
-                    // TODO: Track it!
-                }
-                mouse::Event::CursorLeft => {
-                    // TODO: Track it!
-                }
-                mouse::Event::WheelScrolled { .. } => {
-                    // TODO: Track it!
-                }
+                _ => {}
             },
-            Event::Keyboard(keyboard_event) => match keyboard_event {
-                keyboard::Event::Input { key_code, state } => {
-                    match state {
-                        ButtonState::Pressed => {
-                            let _ = self.pressed_keys.insert(key_code);
-                        }
-                        ButtonState::Released => {
-                            let _ = self.pressed_keys.remove(&key_code);
-                            let _ = self.released_keys.insert(key_code);
-                        }
-                    };
-                }
-                keyboard::Event::TextEntered { .. } => {}
-            },
-            Event::Gamepad { .. } => {
-                // Ignore gamepad events...
-            }
-            Event::Window(_) => {
-                // Ignore window events...
-            }
+            _ => {}
         }
     }
 
-    fn clear(&mut self) {
-        self.left_clicks.clear();
-        self.released_keys.clear();
-    }
+    fn clear(&mut self) {}
 }
 
 struct VennTarget {
@@ -185,7 +106,7 @@ struct VennTarget {
     size: VennSize,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 enum VennColor {
     Green,
     Blue,
@@ -202,14 +123,44 @@ impl VennColor {
     }
 }
 
-#[derive(PartialEq)]
+impl VennColor {
+    fn all() -> Vec<VennColor> {
+        vec![VennColor::Green, VennColor::Blue, VennColor::Purple]
+    }
+
+    fn random(rng: &mut rand::rngs::ThreadRng) -> VennColor {
+        match rng.gen_range(0, 2) {
+            0 => VennColor::Green,
+            1 => VennColor::Blue,
+            2 => VennColor::Purple,
+            _ => panic!("Unexpected value"),
+        }
+    }
+}
+
+#[derive(PartialEq, Copy, Clone)]
 enum VennSize {
     Small,
     Medium,
     Large,
 }
 
-#[derive(PartialEq)]
+impl VennSize {
+    fn all() -> Vec<VennSize> {
+        vec![VennSize::Small, VennSize::Medium, VennSize::Large]
+    }
+
+    fn random(rng: &mut rand::rngs::ThreadRng) -> VennSize {
+        match rng.gen_range(0, 2) {
+            0 => VennSize::Small,
+            1 => VennSize::Medium,
+            2 => VennSize::Large,
+            _ => panic!("Unexpected value"),
+        }
+    }
+}
+
+#[derive(PartialEq, Copy, Clone)]
 enum VennShape {
     Circle,
     Triangle,
@@ -217,37 +168,41 @@ enum VennShape {
 }
 
 impl VennShape {
-    fn all_shapes() -> Vec<VennShape> {
+    fn all() -> Vec<VennShape> {
         vec![VennShape::Circle, VennShape::Square, VennShape::Triangle]
+    }
+
+    fn random(rng: &mut rand::rngs::ThreadRng) -> VennShape {
+        match rng.gen_range(0, 2) {
+            0 => VennShape::Circle,
+            1 => VennShape::Square,
+            2 => VennShape::Triangle,
+            _ => panic!("Unexpected value"),
+        }
     }
 }
 
 struct VennGuess {
     center: Point,
     radius: f32,
-    color: Color,
     dragged: bool,
     target: VennTarget,
     matches: Option<bool>,
 }
 
 impl VennGuess {
-    fn new(shape: VennShape) -> VennGuess {
+    fn new(i: usize, shape: VennShape, color: VennColor, size: VennSize) -> VennGuess {
         VennGuess {
-            center: Point::new(0.0, 0.0),
+            center: Point::new(20.0, (i + 1) as f32 * 40.0),
             radius: 30.0,
-            color: ORANGE,
             dragged: false,
-            target: VennTarget {
-                shape,
-                size: VennSize::Small,
-                color: VennColor::Purple,
-            },
+            target: VennTarget { shape, size, color },
             matches: None,
         }
     }
 
     fn drag_to(&mut self, point: &Point) {
+        self.dragged = true;
         self.center = point.clone();
     }
 
@@ -335,6 +290,7 @@ impl Default for VennCircle {
 impl VennCircle {
     fn draw(&self, mesh: &mut Mesh) {
         let mut color = self.color.clone();
+        color.a = 0.1;
         if self.selected {
             color.a = 0.3;
         }
@@ -364,7 +320,7 @@ impl VennCircle {
 
     fn matches(&self, target: &VennTarget) -> bool {
         if self.target.shape == target.shape
-            || self.target.size == target.size
+            // || self.target.size == target.size
             || self.target.color == target.color
         {
             return true;
@@ -404,8 +360,15 @@ impl Game for Venn {
         Task::new(move || {
             let mut rng = rand::thread_rng();
             let mut shapes = Vec::new();
-            for shape in VennShape::all_shapes() {
-                shapes.push(VennGuess::new(shape));
+            let mut i = 0;
+            for shape in VennShape::all() {
+                for color in VennColor::all() {
+                    // for size in VennSize::all() {
+                    let size = VennSize::Small;
+                    shapes.push(VennGuess::new(i, shape.clone(), color.clone(), size));
+                    i += 1;
+                    // }
+                }
             }
             Venn {
                 x_margin,
@@ -415,9 +378,9 @@ impl Game for Venn {
                     radius: 200.0,
                     color: BLUE,
                     target: VennTarget {
-                        shape: random_shape(&mut rng),
-                        size: VennSize::Large,
-                        color: VennColor::Blue,
+                        shape: VennShape::random(&mut rng),
+                        size: VennSize::random(&mut rng),
+                        color: VennColor::random(&mut rng),
                     },
                     ..VennCircle::default()
                 },
@@ -441,7 +404,7 @@ impl Game for Venn {
         })
     }
 
-    fn draw(&mut self, frame: &mut Frame<'_>, timer: &Timer) {
+    fn draw(&mut self, frame: &mut Frame<'_>, _timer: &Timer) {
         frame.clear(Color::WHITE);
         let mut mesh = Mesh::new();
         self.left.draw(&mut mesh);
@@ -467,8 +430,7 @@ impl Game for Venn {
                     for (i, shape) in self.shapes.iter_mut().enumerate().rev() {
                         if shape.contains(&input.cursor_position) {
                             shape.matches = None;
-                            shape.dragged = true;
-                            shape.center = input.cursor_position;
+                            shape.drag_to(&input.cursor_position);
                             self.drag_index = Some(i);
                             break;
                         }
